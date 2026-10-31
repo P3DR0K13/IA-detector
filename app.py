@@ -9,7 +9,8 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 import difflib
 import streamlit as st
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 from detector import (avaliar, rotulo_nivel, detectar_codigo, analisar_problemas,
                       aplicar_correcao, simular_correcao, simular_todas, gerar_texto_destacado,
