@@ -34,15 +34,18 @@ load_dotenv()
 st.set_page_config(page_title="IA Detector", page_icon="🔍", layout="wide")
 
 GEMINI_CONFIGURADO = False
-
+client = None
 
 def configurar_gemini(api_key=None):
-    global GEMINI_CONFIGURADO
+    global GEMINI_CONFIGURADO, client
+
     key = api_key or os.getenv("GEMINI_API_KEY")
+
     if key:
-        genai.configure(api_key=key)
+        client = genai.Client(api_key=key)
         GEMINI_CONFIGURADO = True
         return True
+
     return False
 
 
