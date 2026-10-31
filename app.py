@@ -55,7 +55,7 @@ def _html_escape_app(s):
 
 
 def gerar_texto(tema, palavras=250, temperature=0.7):
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-2.5-flash")
     prompt = (
         f"Write a detailed, well-structured text about: {tema}\n"
         f"Write approximately {palavras} words. "
@@ -220,7 +220,7 @@ Output ONLY code. Nothing else. No ``` fences.
 
 
 def humanizar_texto(texto, iteracao=0):
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-2.5-flash")
     is_code = detectar_codigo(texto)
 
     if is_code:
@@ -268,7 +268,7 @@ _BANNED_WORDS_STR = ", ".join(_BANNED_WORDS)
 
 def gerar_reescrita_completa(texto, score):
     """Usa Gemini para gerar reescrita completa do texto, estilo QuillBot."""
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-2.5-flash")
     prompt = f"""You are a human ghostwriter. Your job is to rewrite this text so that NO AI detector can flag it.
 The current AI detection score is {score:.0f}%.
 
@@ -319,7 +319,7 @@ TEXT TO REWRITE:
 
 def gerar_reescrita_sentenca(sentenca, score):
     """Reescreve uma unica sentenca via Gemini para soar mais humana."""
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    model = genai.GenerativeModel("gemini-2.5-flash")
     prompt = f"""Rewrite ONLY this single sentence to sound naturally human-written.
 Current AI detection score: {score}%.
 
