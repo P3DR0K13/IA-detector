@@ -35,18 +35,48 @@ st.set_page_config(page_title="IA Detector", page_icon="🔍", layout="wide")
 
 GEMINI_CONFIGURADO = False
 client = None
+GEMINI_MODEL = "gemini-3.8-flash"
+
 
 def configurar_gemini(api_key=None):
     global GEMINI_CONFIGURADO, client
 
     key = api_key or os.getenv("GEMINI_API_KEY")
 
-    if key:
+    if not key:
+        GEMINI_CONFIGURADO = False
+        client = None
+        return False
+
+    try:
         client = genai.Client(api_key=key)
         GEMINI_CONFIGURADO = True
         return True
+    except Exception as e:
+        GEMINI_CONFIGURADO = False
+        client = None
+        print(f"Erro ao configurar Gemini: {e}")
+        return False
 
-    return False
+
+def chamar_gemini(prompt, temperature=0.7, max_output_tokens=2048):
+    """Função única para todas as chamadas à API Gemini (SDK novo)."""
+    if not GEMINI_CONFIGURADO or client is None:
+        raise RuntimeError("Gemini não está configurado. Verifique sua API Key.")
+
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+        ),
+    )
+
+    if not response or not response.text:
+        raise RuntimeError("O Gemini retornou uma resposta vazia.")
+
+    return response.text
 
 
 # ---------------------------------------------------------------------------
@@ -59,20 +89,16 @@ def _html_escape_app(s):
 
 
 def gerar_texto(tema, palavras=250, temperature=0.7):
-    model = genai.GenerativeModel("gemini-3.8-flash")
     prompt = (
         f"Write a detailed, well-structured text about: {tema}\n"
         f"Write approximately {palavras} words. "
         f"Use a formal, informative tone typical of AI-generated content."
     )
-    response = model.generate_content(
+    return chamar_gemini(
         prompt,
-        generation_config=genai.GenerationConfig(
-            temperature=temperature,
-            max_output_tokens=palavras * 2,
-        ),
+        temperature=temperature,
+        max_output_tokens=palavras * 2,
     )
-    return response.text
 
 
 PROMPTS_HUMANIZAR = [
@@ -224,7 +250,6 @@ Output ONLY code. Nothing else. No ``` fences.
 
 
 def humanizar_texto(texto, iteracao=0):
-    model = genai.GenerativeModel("gemini-3.8-flash")
     is_code = detectar_codigo(texto)
 
     if is_code:
@@ -235,14 +260,15 @@ def humanizar_texto(texto, iteracao=0):
     idx = min(iteracao, len(prompts) - 1)
     prompt = prompts[idx].format(texto=texto)
     temp = 1.0 + (iteracao * 0.15) if is_code else 0.85 + (iteracao * 0.15)
-    response = model.generate_content(
+
+    result = chamar_gemini(
         prompt,
-        generation_config=genai.GenerationConfig(
-            temperature=min(temp, 1.8),
-            max_output_tokens=len(texto.split()) * 4,
-        ),
+        temperature=min(temp, 1.8),
+        max_output_tokens=max(2048, len(texto.split()) * 4),
     )
-    result = response.text
+
+    result = result.strip()
+
     if is_code and result.startswith("```"):
         lines = result.split('\n')
         if lines[0].startswith("```"):
@@ -250,6 +276,7 @@ def humanizar_texto(texto, iteracao=0):
         if lines and lines[-1].strip() == "```":
             lines = lines[:-1]
         result = '\n'.join(lines)
+
     return result
 
 
@@ -272,7 +299,6 @@ _BANNED_WORDS_STR = ", ".join(_BANNED_WORDS)
 
 def gerar_reescrita_completa(texto, score):
     """Usa Gemini para gerar reescrita completa do texto, estilo QuillBot."""
-    model = genai.GenerativeModel("gemini-3.8-flash")
     prompt = f"""You are a human ghostwriter. Your job is to rewrite this text so that NO AI detector can flag it.
 The current AI detection score is {score:.0f}%.
 
@@ -311,19 +337,15 @@ CRITICAL RULES — follow ALL of them:
 TEXT TO REWRITE:
 {texto}"""
 
-    response = model.generate_content(
+    return chamar_gemini(
         prompt,
-        generation_config=genai.GenerationConfig(
-            temperature=1.0,
-            max_output_tokens=len(texto.split()) * 5,
-        ),
-    )
-    return response.text.strip()
+        temperature=1.0,
+        max_output_tokens=max(2048, len(texto.split()) * 5),
+    ).strip()
 
 
 def gerar_reescrita_sentenca(sentenca, score):
     """Reescreve uma unica sentenca via Gemini para soar mais humana."""
-    model = genai.GenerativeModel("gemini-3.8-flash")
     prompt = f"""Rewrite ONLY this single sentence to sound naturally human-written.
 Current AI detection score: {score}%.
 
@@ -337,14 +359,11 @@ Rules:
 
 Original: {sentenca}"""
 
-    response = model.generate_content(
+    return chamar_gemini(
         prompt,
-        generation_config=genai.GenerationConfig(
-            temperature=1.0,
-            max_output_tokens=200,
-        ),
-    )
-    return response.text.strip().strip('"').strip("'")
+        temperature=1.0,
+        max_output_tokens=200,
+    ).strip().strip('"').strip("'")
 
 
 def _gerar_diff_html(original, reescrito):
@@ -509,8 +528,11 @@ with tab1:
             st.warning("Digite um tema")
         else:
             with st.spinner("Gerando com Gemini..."):
-                texto = gerar_texto(tema, palavras, temperature)
-                st.session_state["texto_gerado"] = texto
+                try:
+                    texto = gerar_texto(tema, palavras, temperature)
+                    st.session_state["texto_gerado"] = texto
+                except Exception as e:
+                    st.error(f"Erro ao gerar texto: {e}")
 
     if "texto_gerado" in st.session_state:
         st.text_area("Texto Gerado", st.session_state["texto_gerado"], height=300)
@@ -1002,7 +1024,6 @@ with tab2:
                 triggers.append("Formulaic patterns")
 
             if triggers:
-                # "Why it triggers AI detection?" + tags/pills
                 st.markdown(
                     '<p style="color:#999;font-size:13px;margin:8px 0 6px 0;">'
                     'Why it triggers AI detection?</p>',
@@ -1071,8 +1092,6 @@ with tab2:
 
                     preview = s_text[:60] + ('...' if len(s_text) > 60 else '')
 
-                    # --- QuillBot-style sentence card ---
-                    # Label + confidence badge (right side)
                     st.markdown(
                         f'<div style="border-left:3px solid {s_border};'
                         f'padding:10px 12px;margin:8px 0 0 0;'
@@ -1090,12 +1109,8 @@ with tab2:
                         unsafe_allow_html=True,
                     )
 
-                    # Details for AI/mixed sentences
                     if s_class in ('ai', 'mixed'):
-                        # "Why?" section with trigger explanations
                         ai_triggers = [t for t in s_triggers if t[0] == 'ai']
-                        human_triggers = [t for t in s_triggers if t[0] == 'human']
-
                         why_items = ''.join(
                             f'<span style="background:#2A2A3E;border:1px solid #444;'
                             f'color:#CCC;padding:2px 6px;border-radius:10px;'
@@ -1111,7 +1126,6 @@ with tab2:
                                 unsafe_allow_html=True,
                             )
 
-                        # "How sure?" + probability label + ℹ️ tooltip
                         st.markdown(
                             f'<div style="margin:6px 0 4px 14px;">'
                             f'<span style="color:#999;font-size:11px;">'
@@ -1124,7 +1138,6 @@ with tab2:
                             unsafe_allow_html=True,
                         )
 
-                        # Rewrite section
                         if idx_s in rewrites:
                             rw_text = rewrites[idx_s]
                             st.markdown(
@@ -1187,7 +1200,6 @@ with tab2:
                     db_overall = deberta_result['overall']
                     db_stats = deberta_result['stats']
 
-                    # Score comparison: Statistical vs DeBERTa
                     col_stat, col_ml = st.columns(2)
 
                     with col_stat:
@@ -1216,7 +1228,6 @@ with tab2:
                             unsafe_allow_html=True,
                         )
 
-                    # Per-sentence DeBERTa results
                     if deberta_result.get('sentencas'):
                         st.markdown("**DeBERTa per-sentence analysis:**")
                         for ds in deberta_result['sentencas']:
@@ -1333,6 +1344,7 @@ with tab3:
             texto_atual = texto_humanizar
             melhor_texto = texto_humanizar
             melhor_score = score_antes
+            metricas_depois = metricas_antes
 
             progress = st.progress(0)
             status = st.empty()
@@ -1342,16 +1354,21 @@ with tab3:
                 status.info(f"Iteracao {it + 1}/{max_iter} — reescrita {nivel}...")
                 progress.progress((it + 1) / max_iter)
 
-                texto_atual = humanizar_texto(texto_atual, it)
-                score, metricas = avaliar(texto_atual)
+                try:
+                    texto_atual = humanizar_texto(texto_atual, it)
+                    score, metricas = avaliar(texto_atual)
 
-                if score < melhor_score:
-                    melhor_score = score
-                    melhor_texto = texto_atual
-                    metricas_depois = metricas
+                    if score < melhor_score:
+                        melhor_score = score
+                        melhor_texto = texto_atual
+                        metricas_depois = metricas
 
-                if score <= score_alvo:
-                    status.success(f"Iteracao {it + 1}: Score {score:.1f}% <= alvo {score_alvo}%!")
+                    if score <= score_alvo:
+                        status.success(f"Iteracao {it + 1}: Score {score:.1f}% <= alvo {score_alvo}%!")
+                        break
+
+                except Exception as e:
+                    status.error(f"Erro na API Gemini durante a iteracao {it + 1}: {str(e)}")
                     break
 
             progress.progress(1.0)
